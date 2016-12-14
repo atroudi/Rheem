@@ -206,12 +206,10 @@ public class CrossPlatformExecutor implements ExecutionState {
     }
 
     /**
-     *  Execute single {@link ExecutionStage}
+     *  Execute one single {@link ExecutionStage}
      */
 
     private void executeSingleStage(boolean isBreakpointsDisabled, StageActivator stageActivator){
-
-
         // Check if #breakpoint permits the execution.
         if (!isBreakpointsDisabled && this.suspendIfBreakpointRequest(stageActivator)) {
             return;
@@ -245,7 +243,6 @@ public class CrossPlatformExecutor implements ExecutionState {
     /**
      *  Run parallel threads executing activated {@link ExecutionStage}s
      */
-
     private void runParallelExecution (boolean isBreakpointsDisabled){
         CrossPlatformExecutor.this.logger.info("Start Parallelizing!");
         int numActiveStages = this.activatedStageActivators.size();
@@ -273,7 +270,6 @@ public class CrossPlatformExecutor implements ExecutionState {
         // Clear the list of created threads
         parallelExecutionThreads.clear();
         CrossPlatformExecutor.this.logger.info("Parallel execution ended!" );
-        return;
     }
 
     /**
@@ -292,6 +288,7 @@ public class CrossPlatformExecutor implements ExecutionState {
                     this.runParallelExecution(isBreakpointsDisabled);
                 } else {
                     final StageActivator stageActivator = this.activatedStageActivators.poll();
+                    // Execute one single ExecutionStage
                     this.executeSingleStage(isBreakpointsDisabled, stageActivator);
                 }
             }
@@ -996,7 +993,7 @@ public class CrossPlatformExecutor implements ExecutionState {
 
     /**
      *  Executes {@link ExecutionStage}s in parallel threads
-     *  It continues to live as long as there is a {@link ExecutionStage} activated after first {@link ExecutionStage} execution,
+     *  It continues to live as long as there is a {@link ExecutionStage} activated after first {@link ExecutionStage} execution and another running {@link ParallelExecutionThread}s,
      *  if multiple {@link ExecutionStage} are activated it will create new threads to execute new {@link ExecutionStage} in recursive manner
      */
 
