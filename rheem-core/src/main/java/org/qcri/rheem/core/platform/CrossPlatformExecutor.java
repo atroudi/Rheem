@@ -239,27 +239,26 @@ public class CrossPlatformExecutor implements ExecutionState {
                 iterator.remove();
             }
         }
-        return;
     }
 
 
     /**
-     *  Run parallel execution of parallel {@link ExecutionStage}s
+     *  Run parallel threads executing activated {@link ExecutionStage}s
      */
 
     private void runParallelExecution (boolean isBreakpointsDisabled){
         CrossPlatformExecutor.this.logger.info("Start Parallelizing!");
         int numActiveStages = this.activatedStageActivators.size();
 
-        // Create execution thread
+        // Create execution threads
         for(int i=1; i<=numActiveStages; ++i){
            Thread thread = new Thread(new ParallelExecutionThread(isBreakpointsDisabled,i));
-            // Start execution thread
+            // Start thread execution
             thread.start();
             this.parallelExecutionThreads.add(thread);
         }
 
-        //Join all created Threads
+        //Join all created threads
         for (int i=0; i<this.parallelExecutionThreads.size(); i++){
             Thread t = this.parallelExecutionThreads.get(i);
             try {
@@ -996,28 +995,39 @@ public class CrossPlatformExecutor implements ExecutionState {
     }
 
     /**
-     *  Run parallel {@link ExecutionStage}s
+     *  Executes {@link ExecutionStage}s in parallel threads
+     *  It continues to live as long as there is a {@link ExecutionStage} activated after first {@link ExecutionStage} execution,
+     *  if multiple {@link ExecutionStage} are activated it will create new threads to execute new {@link ExecutionStage} in recursive manner
      */
 
     private class ParallelExecutionThread implements Runnable{
 
         /**
-         *  Thread identifier {@link ExecutionStage}s
+         *  Thread identifier of {@link ParallelExecutionThread}
          */
         private int threadId;
+
+        /**
+         *  Check if #breakpoint permits the execution of {@link ExecutionStage}
+         */
         private boolean thread_isBreakpointDisabled;
 
+        /**
+         * Creates a new instance.
+         */
         public ParallelExecutionThread(boolean isBreakpointsDisabled, int id){
 
             this.thread_isBreakpointDisabled = isBreakpointsDisabled;
             this.threadId=id;
         }
 
+        /**
+         * Execution code of the thread.
+         */
         @Override
         public void run() {
 
             CrossPlatformExecutor.this.logger.info("Thread T" + String.valueOf(this.threadId) + " started" );
-
             // Loop until there is no activated stage or only one thread running
             do {
                 // Get the stageActivator for the stage to execute
