@@ -73,6 +73,23 @@ public class OperatorAlternative extends OperatorBase implements CompositeOperat
 
     public List<Alternative> getAlternatives() {
         return Collections.unmodifiableList(this.alternatives);
+
+    }
+
+    public void keepAlternative(String platform) {
+//        Alternative firstAlternative = this.alternatives.get(0);
+//        Alternative indexAlternative = this.alternatives.get(index);
+//        this.alternatives.clear();
+//        this.alternatives.add(firstAlternative);
+//        this.alternatives.add(indexAlternative);
+        this.alternatives.removeIf(op->{
+            if (op.getContainedOperator() instanceof ExecutionOperator){
+                ExecutionOperator executionOperator = (ExecutionOperator)op.getContainedOperator();
+                if(executionOperator.getPlatform().getName()==platform) return false;
+                else return true;
+            } else
+                return false;
+        });
     }
 
     /**

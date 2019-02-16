@@ -6,10 +6,10 @@ options {
 
 expression
   : '(' expression ')' #parensExpression
-  | operator=('-' | '+') expression #unaryOperation
-  | operand0=expression operator='^' operand1=expression #binaryOperation
-  | operand0=expression operator=('*' | '%' | '/') operand1=expression #binaryOperation
-  | operand0=expression operator=('+' | '-') operand1=expression #binaryOperation
+  | executionOperator=('-' | '+') expression #unaryOperation
+  | operand0=expression executionOperator='^' operand1=expression #binaryOperation
+  | operand0=expression executionOperator=('*' | '%' | '/') operand1=expression #binaryOperation
+  | operand0=expression executionOperator=('+' | '-') operand1=expression #binaryOperation
   | variableName=IDENTIFIER #variable
   | value=NUMBER #constant
   | name=IDENTIFIER '(' ( expression (',' expression )* )? ')' #function

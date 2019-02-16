@@ -24,7 +24,7 @@ public class BinaryOperatorProfiler extends SparkOperatorProfiler {
     }
 
     @Override
-    protected void prepareInput(int inputIndex, long inputCardinality) {
+    protected void prepareInput(int inputIndex, long dataQuantaSize, long inputCardinality) {
         switch (inputIndex) {
             case 0:
                 this.inputRdd0 = this.prepareInputRdd(inputCardinality, inputIndex);
@@ -43,16 +43,16 @@ public class BinaryOperatorProfiler extends SparkOperatorProfiler {
         final RddChannel.Instance inputChannelInstance1 = createChannelInstance(this.inputRdd1, this.sparkExecutor);
         final RddChannel.Instance outputChannelInstance = createChannelInstance(this.sparkExecutor);
 
-        // Let the operator execute.
+        // Let the executionOperator execute.
         ProfilingUtils.sleep(this.executionPaddingTime); // Pad measurement with some idle time.
         final long startTime = System.currentTimeMillis();
         this.evaluate(
-                this.operator,
+                (SparkExecutionOperator)this.executionOperator,
                 new ChannelInstance[]{inputChannelInstance0, inputChannelInstance1},
                 new ChannelInstance[]{outputChannelInstance}
         );
 
-        // Force the execution of the operator.
+        // Force the execution of the executionOperator.
         outputChannelInstance.provideRdd().foreach(dataQuantum -> {
         });
         final long endTime = System.currentTimeMillis();

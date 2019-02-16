@@ -20,6 +20,7 @@ import org.qcri.rheem.core.types.DataSetType;
 import org.qcri.rheem.core.types.DataUnitType;
 import org.qcri.rheem.core.util.RheemCollections;
 import org.qcri.rheem.java.Java;
+import org.qcri.rheem.spark.Spark;
 import org.qcri.rheem.tests.platform.MyMadeUpPlatform;
 
 import java.io.IOException;
@@ -68,7 +69,7 @@ public class JavaIntegrationIT {
     public void testReadAndTransformAndWriteWithIllegalConfiguration1() throws URISyntaxException {
         // Build a Rheem plan.
         final RheemPlan rheemPlan = RheemPlans.readTransformWrite(RheemPlans.FILE_SOME_LINES_TXT);
-        // ILLEGAL: This platform is not registered, so this operator will find no implementation.
+        // ILLEGAL: This platform is not registered, so this executionOperator will find no implementation.
         rheemPlan.getSinks().forEach(sink -> sink.addTargetPlatform(MyMadeUpPlatform.getInstance()));
 
         // Instantiate Rheem and activate the Java backend.
@@ -330,6 +331,7 @@ public class JavaIntegrationIT {
 
         // Instantiate Rheem and activate the Java backend.
         RheemContext rheemContext = new RheemContext().with(Java.basicPlugin());
+        rheemContext.with(Spark.basicPlugin());
 
         rheemContext.execute(rheemPlan);
     }
@@ -362,7 +364,20 @@ public class JavaIntegrationIT {
     public void testSample() throws URISyntaxException {
         // Build the RheemPlan.
         final List<Integer> collector = new LinkedList<>();
-        RheemPlan rheemPlan = RheemPlans.simpleSample(collector, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+        RheemPlan rheemPlan = RheemPlans.simpleSample(3, collector, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+
+        // Instantiate Rheem and activate the Java backend.
+        RheemContext rheemContext = new RheemContext().with(Java.basicPlugin());
+
+        rheemContext.execute(rheemPlan);
+        System.out.println(collector);
+    }
+
+    @Test
+    public void testLargerSample() throws URISyntaxException {
+        // Build the RheemPlan.
+        final List<Integer> collector = new LinkedList<>();
+        RheemPlan rheemPlan = RheemPlans.simpleSample(15, collector, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 
         // Instantiate Rheem and activate the Java backend.
         RheemContext rheemContext = new RheemContext().with(Java.basicPlugin());

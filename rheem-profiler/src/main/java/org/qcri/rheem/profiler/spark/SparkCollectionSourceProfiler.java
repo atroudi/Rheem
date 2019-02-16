@@ -29,8 +29,32 @@ public class SparkCollectionSourceProfiler extends SparkSourceProfiler {
         this.collection = (ArrayList<Object>) collection;
     }
 
+    /**
+     * Prepare the input data for the profiling operators/plans
+     * It saves previous created generators with the same %InputCardinality %DataQuantaSize to avoid heap out of memory
+     * @param inputIndex
+     * @param inputCardinality
+     */
     @Override
-    protected void prepareInput(int inputIndex, long inputCardinality) {
+    protected void prepareInput(int inputIndex, long dataQuantaSize, long inputCardinality) {
+        assert inputIndex == 0;
+        assert inputCardinality <= Integer.MAX_VALUE;
+
+        this.collection.clear();
+        this.collection.ensureCapacity((int) inputCardinality);
+        final Supplier<?> supplier = this.dataQuantumGenerators.get(0);
+        for (long i = 0; i < inputCardinality; i++) {
+            this.collection.add(supplier.get());
+        }
+    }
+
+    /**
+     * Prepare the input data for the profiling operators/plans
+     * It saves previous created generators with the same %InputCardinality %DataQuantaSize to avoid heap out of memory
+     * @param inputIndex
+     * @param inputCardinality
+     */
+    protected void prepareInputFile(int inputIndex, long inputCardinality, String FileLocation) {
         assert inputIndex == 0;
         assert inputCardinality <= Integer.MAX_VALUE;
 

@@ -58,6 +58,8 @@ public class Configuration {
         Actions.doSafe(() -> bootstrapPruningProviders(defaultConfiguration));
         Actions.doSafe(() -> bootstrapProperties(defaultConfiguration));
         Actions.doSafe(() -> bootstrapPlugins(defaultConfiguration));
+        Actions.doSafe(() -> bootstrapMlOptimizerProperties(defaultConfiguration));
+        Actions.doSafe(() -> bootstrapProfilingProperties(defaultConfiguration));
     }
 
     private static final String BASIC_PLUGIN = "org.qcri.rheem.basic.RheemBasics.defaultPlugin()";
@@ -554,6 +556,66 @@ public class Configuration {
         configuration.setProperties(customizableProperties);
 
 
+    }
+
+    private static void bootstrapMlOptimizerProperties(Configuration configuration) {
+        configuration.setProperty("rheem.core.optimizer.mloptimizer.modelLocation", StringUtils.join(
+                Arrays.asList("/load-model.py"),
+                File.separator
+        ));
+//        configuration.setProperty("rheem.core.optimizer.mloptimizer.modelLocation", StringUtils.join(
+//                Arrays.asList(System.getProperty("user.home"), ".rheem", "load-model.py"),
+//                File.separator
+//        ));
+
+        configuration.setProperty("rheem.core.optimizer.mloptimizer.saveVectorLocation", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "mlModelVectors.txt"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.core.optimizer.mloptimizer.loadEstimatesLocation", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "estimates.txt"),
+                File.separator
+        ));
+    }
+
+    private static void bootstrapProfilingProperties(Configuration configuration) {
+
+        configuration.setProperty("rheem.profiler.logs.syntheticDataURL.prefix", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "syntheticData"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.logs.planVector_1D", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "planVector_1D.log"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.logs.metadata.planVector_1D", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "planVector_1D_metadata.log"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.logs.planVector_2D", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "planVector_2D.log"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.generate.syntheticLog.url", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "syntheticLog", ""),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.generate2dLogs", "false");
+        configuration.setProperty("rheem.profiler.generate.syntheticLogs", "false");
+
+
+        configuration.setProperty("rheem.profiler.logs.errors", StringUtils.join(
+                Arrays.asList(System.getProperty("user.home"), ".rheem", "profiling_errors.log"),
+                File.separator
+        ));
+
+        configuration.setProperty("rheem.profiler.errors.discard", "true");
     }
 
     /**

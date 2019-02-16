@@ -23,16 +23,16 @@ public abstract class SparkSourceProfiler extends SparkOperatorProfiler {
     protected Result executeOperator() {
         final RddChannel.Instance outputChannelInstance = createChannelInstance(this.sparkExecutor);
 
-        // Let the operator execute.
+        // Let the executionOperator execute.
         ProfilingUtils.sleep(this.executionPaddingTime); // Pad measurement with some idle time.
         final long startTime = System.currentTimeMillis();
         this.evaluate(
-                this.operator,
+                (SparkExecutionOperator)this.executionOperator,
                 new ChannelInstance[]{},
                 new ChannelInstance[]{outputChannelInstance}
         );
 
-        // Force the execution of the operator.
+        // Force the execution of the executionOperator.
         outputChannelInstance.provideRdd().foreach(dataQuantum -> {
         });
         final long endTime = System.currentTimeMillis();

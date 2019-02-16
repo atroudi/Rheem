@@ -1,6 +1,7 @@
 package org.qcri.rheem.core.optimizer.enumeration;
 
 import org.qcri.rheem.core.api.Configuration;
+import org.qcri.rheem.core.optimizer.mloptimizer.LogGenerator;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,5 +31,10 @@ public class RandomPruningStrategy implements PlanEnumerationPruningStrategy {
         ArrayList<PlanImplementation> planImplementations = new ArrayList<>(planEnumeration.getPlanImplementations());
         Collections.shuffle(planImplementations, this.random);
         planEnumeration.getPlanImplementations().retainAll(planImplementations.subList(0, this.numRetainedPlans));
+    }
+
+    @Override
+    public void setLog(LogGenerator logGenerator) {
+
     }
 }

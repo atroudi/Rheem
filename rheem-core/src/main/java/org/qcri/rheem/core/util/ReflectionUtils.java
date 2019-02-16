@@ -4,9 +4,12 @@ import org.apache.commons.lang3.Validate;
 import org.qcri.rheem.core.api.exception.RheemException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 import java.io.InputStream;
 import java.lang.reflect.*;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.URL;
 import java.util.*;
@@ -423,7 +426,19 @@ public class ReflectionUtils {
         else if (o instanceof Long) return (Long) o;
         else if (o instanceof Short) return (Short) o;
         else if (o instanceof Byte) return (Byte) o;
-        throw new IllegalStateException(String.format("%s cannot be retrieved as double.", o));
+        else if (o instanceof BigDecimal) return ((BigDecimal) o).doubleValue();
+        else if (o instanceof BigInteger) return ((BigInteger) o).doubleValue();
+        throw new IllegalStateException(String.format("%s (%s) cannot be retrieved as double.", o,
+                o == null ? "unknown class" : o.getClass().getCanonicalName()));
 
+    }
+
+
+    public static Type getWrapperClass(Type type, int index) {
+        if (type != null && (type instanceof ParameterizedType)) {
+            ParameterizedType parameterizedType = (ParameterizedType) type;
+            return parameterizedType.getActualTypeArguments()[index];
+        }
+        return null;
     }
 }

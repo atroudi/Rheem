@@ -133,7 +133,7 @@ public class Individual {
 //
 //            // Attribute the fitness to all involved subjects.
 //            for (PartialExecution.OperatorExecution operatorExecution : partialExecution.getOperatorExecutions()) {
-//                Object subject = operatorExecution.getOperator().getClass();
+//                Object subject = operatorExecution.getExecutionOperator().getClass();
 //                final FitnessAggregator aggregator = subjectAggregators.computeIfAbsent(subject, k -> new FitnessAggregator(0, 0));
 //                aggregator.fitnessAccumulator += weight * partialFitness;
 //                aggregator.weightAccumulator += weight;

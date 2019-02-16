@@ -40,7 +40,7 @@ public class PlanEnumerator {
      * {@link ConcatenationActivator}s that are activated and should be executed.
      */
     private final Queue<ConcatenationActivator> activatedConcatenations = new PriorityQueue<>(
-            (activator0, activator1) -> Double.compare(activator0.priority, activator1.priority)
+            Comparator.comparingDouble(activator0 -> activator0.priority)
     );
 
     /**
@@ -176,6 +176,7 @@ public class PlanEnumerator {
                            Map<ExecutionOperator, ExecutionTask> executedTasks,
                            Map<OutputSlot<?>, Collection<Channel>> openChannels) {
 
+
         this.optimizationContext = optimizationContext;
         this.enumeratedAlternative = enumeratedAlternative;
         this.presettledAlternatives = presettledAlternatives;
@@ -205,6 +206,9 @@ public class PlanEnumerator {
                 break;
             case "plans":
                 concatenationPriorityFunction = ConcatenationActivator::estimateNumConcatenatedPlanImplementations;
+                break;
+            case "plans2":
+                concatenationPriorityFunction = ConcatenationActivator::estimateNumConcatenatedPlanImplementations2;
                 break;
             case "random":
                 // Randomly generate a priority. However, avoid re-generate priorities, because that would increase
@@ -337,7 +341,6 @@ public class PlanEnumerator {
         if (branchEnumeration == null) {
             return;
         }
-
         this.postProcess(branchEnumeration, currentOptimizationCtx);
     }
 
@@ -424,6 +427,23 @@ public class PlanEnumerator {
             } else {
                 assert operator.isExecutionOperator();
                 operatorEnumeration = PlanEnumeration.createSingleton((ExecutionOperator) operator, optimizationContext);
+
+                // Check if the operator is filtered.
+                // However, we must not filter operators that are pre-settled (i.e., that have been executed already).
+                boolean isPresettled = false;
+                OperatorContainer container = operator.getContainer();
+                if (container instanceof OperatorAlternative.Alternative) {
+                    OperatorAlternative.Alternative alternative = (OperatorAlternative.Alternative) container;
+                    OperatorAlternative operatorAlternative = alternative.getOperatorAlternative();
+                    isPresettled = this.presettledAlternatives.get(operatorAlternative) == alternative;
+                }
+                if (!isPresettled) {
+                    OptimizationContext.OperatorContext operatorContext = optimizationContext.getOperatorContext(operator);
+                    if (operatorContext != null && ((ExecutionOperator) operator).isFiltered(operatorContext)) {
+                        this.logger.info("Filtered {} with context {}.", operator, operatorContext);
+                        operatorEnumeration.getPlanImplementations().clear();
+                    }
+                }
             }
 
             if (operatorEnumeration.getPlanImplementations().isEmpty()) {
@@ -551,11 +571,13 @@ public class PlanEnumerator {
             }
         }
 
-        this.prune(concatenatedEnumeration);
+        if(!getConfiguration().getBooleanProperty("rheem.core.optimizer.mloptimizer.exhaustivePruning"))
+            this.prune(concatenatedEnumeration);
 
+        //count++;
         this.postProcess(concatenatedEnumeration, concatenationActivator.optimizationContext);
     }
-
+//private static int count = 0;
     /**
      * Sends activations to relevant {@link #enumerationActivators} or {@link #concatenationActivators}.
      *
@@ -964,6 +986,18 @@ public class PlanEnumerator {
                 num *= successorEnumeration.getPlanImplementations().size();
             }
             return num;
+        }
+
+        /**
+         * Estimates the number of {@link PlanImplementation}s in the concatenated {@link PlanEnumeration}. Can be used
+         * as {@link #concatenationPriorityFunction}.
+         *
+         * @return the number of {@link PlanImplementation}s
+         */
+        private double estimateNumConcatenatedPlanImplementations2() {
+            // We use the product of all concatenatable PlanImplementations as an estimate of the size of the
+            // concatenated PlanEnumeration.
+            return Stream.concat(Stream.of(this.baseEnumeration), activationCollector.values().stream()).distinct().count();
         }
 
         /**

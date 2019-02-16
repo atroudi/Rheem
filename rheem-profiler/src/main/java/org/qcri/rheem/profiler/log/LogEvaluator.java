@@ -122,7 +122,7 @@ public class LogEvaluator {
 
     private void modifyFilters(String[] commandLine) {
         if (commandLine.length == 1) {
-            System.out.println("filter <name|platform|operator> <regex>");
+            System.out.println("filter <name|platform|executionOperator> <regex>");
             System.out.println("filter clear");
             return;
         }
@@ -134,20 +134,20 @@ public class LogEvaluator {
             case "name":
                 System.out.println("Not supported.");
 //                predicate = pe -> pe.getOperatorContexts().stream()
-//                        .map(operatorContext -> operatorContext.getOperator().getName())
+//                        .map(operatorContext -> operatorContext.getExecutionOperator().getName())
 //                        .filter(Objects::nonNull)
 //                        .anyMatch(name -> matchSubstring(name, commandLine[2]));
                 break;
-            case "operator":
+            case "executionOperator":
                 System.out.println("Not supported.");
 //                predicate = pe -> pe.getOperatorContexts().stream()
-//                        .map(operatorContext -> operatorContext.getOperator().getClass().getSimpleName())
+//                        .map(operatorContext -> operatorContext.getExecutionOperator().getClass().getSimpleName())
 //                        .anyMatch(name -> matchSubstring(name, commandLine[2]));
                 break;
             case "platform":
                 System.out.println("Not supported.");
 //                predicate = pe -> pe.getOperatorContexts().stream()
-//                        .map(operatorContext -> ((ExecutionOperator) operatorContext.getOperator()).getPlatform())
+//                        .map(operatorContext -> ((ExecutionOperator) operatorContext.getExecutionOperator()).getPlatform())
 //                        .anyMatch(platform -> matchSubstring(platform.getName(), commandLine[2]));
                 break;
             default:

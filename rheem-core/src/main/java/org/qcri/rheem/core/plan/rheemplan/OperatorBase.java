@@ -19,35 +19,35 @@ import java.util.function.Supplier;
  */
 public abstract class OperatorBase implements Operator {
 
-    public static final List<Tuple<Class<?>, Supplier<?>>> STANDARD_OPERATOR_ARGS = Arrays.asList(
-            new Tuple<>(DataSetType.class, DataSetType::none),
-            new Tuple<>(Class.class, () -> Object.class),
-            new Tuple<>(TransformationDescriptor.class, () -> new TransformationDescriptor<>(o -> o, Object.class, Object.class)),
-            new Tuple<>(FlatMapDescriptor.class, () -> new FlatMapDescriptor<>(o -> Collections.emptyList(), Object.class, Object.class)),
-            new Tuple<>(PredicateDescriptor.class, () -> new PredicateDescriptor<>(o -> true, Object.class)),
-            new Tuple<>(ReduceDescriptor.class, () -> new ReduceDescriptor<>((a, b) -> a, Object.class)),
-            new Tuple<>(FunctionDescriptor.SerializableFunction.class, () -> (FunctionDescriptor.SerializableFunction) o -> o),
-            new Tuple<>(FunctionDescriptor.SerializableBinaryOperator.class, () -> (FunctionDescriptor.SerializableBinaryOperator) (a, b) -> a),
-            new Tuple<>(Object[].class, () -> new Object[0]),
-            new Tuple<>(String[].class, () -> new String[0])
-    );
+        public static final List<Tuple<Class<?>, Supplier<?>>> STANDARD_OPERATOR_ARGS = Arrays.asList(
+                new Tuple<>(DataSetType.class, DataSetType::none),
+                new Tuple<>(Class.class, () -> Object.class),
+                new Tuple<>(TransformationDescriptor.class, () -> new TransformationDescriptor<>(o -> o, Object.class, Object.class)),
+                new Tuple<>(FlatMapDescriptor.class, () -> new FlatMapDescriptor<>(o -> Collections.emptyList(), Object.class, Object.class)),
+                new Tuple<>(PredicateDescriptor.class, () -> new PredicateDescriptor<>(o -> true, Object.class)),
+                new Tuple<>(ReduceDescriptor.class, () -> new ReduceDescriptor<>((a, b) -> a, Object.class)),
+                new Tuple<>(FunctionDescriptor.SerializableFunction.class, () -> (FunctionDescriptor.SerializableFunction) o -> o),
+                new Tuple<>(FunctionDescriptor.SerializableBinaryOperator.class, () -> (FunctionDescriptor.SerializableBinaryOperator) (a, b) -> a),
+                new Tuple<>(Object[].class, () -> new Object[0]),
+                new Tuple<>(String[].class, () -> new String[0])
+        );
 
-    private final boolean isSupportingBroadcastInputs;
+        private final boolean isSupportingBroadcastInputs;
 
-    private OperatorContainer container;
+        private OperatorContainer container;
 
-    /**
-     * Tells whether this instance is auxiliary, i.e., it support some non-auxiliary operators.
-     */
-    private boolean isAuxiliary = false;
+        /**
+         * Tells whether this instance is auxiliary, i.e., it support some non-auxiliary operators.
+         */
+        private boolean isAuxiliary = false;
 
-    private int epoch = FIRST_EPOCH;
+        private int epoch = FIRST_EPOCH;
 
-    protected InputSlot<?>[] inputSlots;
+        protected InputSlot<?>[] inputSlots;
 
-    protected final OutputSlot<?>[] outputSlots;
+        protected final OutputSlot<?>[] outputSlots;
 
-    private final Set<Platform> targetPlatforms = new HashSet<>(0);
+        private final Set<Platform> targetPlatforms = new HashSet<>(0);
 
     private ExecutionOperator original;
 

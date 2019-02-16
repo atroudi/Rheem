@@ -1,6 +1,7 @@
 package org.qcri.rheem.core.optimizer.enumeration;
 
 import org.qcri.rheem.core.api.Configuration;
+import org.qcri.rheem.core.optimizer.mloptimizer.LogGenerator;
 
 import java.util.ArrayList;
 
@@ -24,6 +25,11 @@ public class TopKPruningStrategy implements PlanEnumerationPruningStrategy {
         ArrayList<PlanImplementation> planImplementations = new ArrayList<>(planEnumeration.getPlanImplementations());
         planImplementations.sort(this::comparePlanImplementations);
         planEnumeration.getPlanImplementations().retainAll(planImplementations.subList(0, this.k));
+    }
+
+    @Override
+    public void setLog(LogGenerator logGenerator) {
+
     }
 
 

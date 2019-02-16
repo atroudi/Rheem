@@ -12,10 +12,7 @@ import org.qcri.rheem.core.plan.executionplan.ExecutionTask;
 import org.qcri.rheem.core.plan.rheemplan.*;
 import org.qcri.rheem.core.platform.ChannelDescriptor;
 import org.qcri.rheem.core.platform.Junction;
-import org.qcri.rheem.core.util.Bitmask;
-import org.qcri.rheem.core.util.OneTimeExecutable;
-import org.qcri.rheem.core.util.RheemCollections;
-import org.qcri.rheem.core.util.Tuple;
+import org.qcri.rheem.core.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,6 +35,11 @@ public class ChannelConversionGraph {
      */
     private final ToDoubleFunction<ProbabilisticDoubleInterval> costSquasher;
 
+    /**
+     * On the face of competing {@link Tree}s, picks the one to use for converting {@link Channel}s.
+     */
+    private final TreeSelectionStrategy treeSelectionStrategy;
+
     private static final Logger logger = LoggerFactory.getLogger(ChannelConversionGraph.class);
 
     /**
@@ -48,6 +50,11 @@ public class ChannelConversionGraph {
     public ChannelConversionGraph(Configuration configuration) {
         this.costSquasher = configuration.getCostSquasherProvider().provide();
         configuration.getChannelConversionProvider().provideAll().forEach(this::add);
+        String treeSelectionStrategyClassName = configuration.getStringProperty(
+                "rheem.core.optimizer.channels.selection",
+                this.getClass().getCanonicalName() + '$' + CostbasedTreeSelectionStrategy.class.getSimpleName()
+        );
+        this.treeSelectionStrategy = ReflectionUtils.instantiateDefault(treeSelectionStrategyClassName);
     }
 
     /**
@@ -103,10 +110,12 @@ public class ChannelConversionGraph {
     }
 
     /**
-     * Given two {@link Tree}s, choose the one with lower costs.
+     * Given two {@link Tree}s, select the preferred one.
      */
-    private Tree selectCheaperTree(Tree t1, Tree t2) {
-        return t2 == null || (t1 != null && t1.costs <= t2.costs) ? t1 : t2;
+    private Tree selectPreferredTree(Tree t1, Tree t2) {
+        if (t1 == null) return t2;
+        if (t2 == null) return t1;
+        return this.treeSelectionStrategy.select(t1, t2);
     }
 
     /**
@@ -151,6 +160,48 @@ public class ChannelConversionGraph {
         mergedTree.costs = costs;
         mergedTree.employedChannelDescriptors.addAll(employedChannelDescriptors);
         return mergedTree;
+    }
+
+    /**
+     * Designates a strategy of which conversion tree to prefer when there are competing trees.
+     */
+    private interface TreeSelectionStrategy {
+
+        /**
+         * Select the preferred {@link Tree}.
+         *
+         * @param t1 the first {@link Tree} (not {@code null}
+         * @param t2 the second {@link Tree} (not {@code null}
+         * @return the preferred {@link Tree}
+         */
+        Tree select(Tree t1, Tree t2);
+
+    }
+
+    /**
+     * Prefers {@link Tree}s with lower cost.
+     */
+    public static class CostbasedTreeSelectionStrategy implements TreeSelectionStrategy {
+
+        @Override
+        public Tree select(Tree t1, Tree t2) {
+            return t1.costs <= t2.costs ? t1 : t2;
+        }
+
+    }
+
+    /**
+     * Prefers {@link Tree}s with lower cost.
+     */
+    public static class RandomTreeSelectionStrategy implements TreeSelectionStrategy {
+
+        private final Random random = new Random();
+
+        @Override
+        public Tree select(Tree t1, Tree t2) {
+            return this.random.nextBoolean() ? t1 : t2;
+        }
+
     }
 
     /**
@@ -235,6 +286,11 @@ public class ChannelConversionGraph {
          * Caches cost estimates for {@link ChannelConversion}s.
          */
         private Map<ChannelConversion, Double> conversionCostCache = new HashMap<>();
+
+        /**
+         * Caches whether {@link ChannelConversion}s should be filtered.
+         */
+        private Map<ChannelConversion, Boolean> conversionFilterCache = new HashMap<>();
 
         /**
          * Caches the result of {@link #getJunction()}.
@@ -582,6 +638,12 @@ public class ChannelConversionGraph {
                     continue;
                 }
 
+                // Check if the channelConversion can be filtered.
+                if (successorChannelDescriptors == null && this.isFiltered(channelConversion)) {
+                    logger.info("Filtering conversion {} between {} and {}.", channelConversion, this.sourceOutput, this.destInputs);
+                    continue;
+                }
+
                 if (visitedChannelDescriptors.add(targetChannelDescriptor)) {
                     final Map<Bitmask, Tree> childSolutions = this.enumerate(
                             visitedChannelDescriptors,
@@ -597,7 +659,7 @@ public class ChannelConversionGraph {
                                     this.getCostEstimate(channelConversion)
                             )
                     );
-                    childSolutionSets.add(childSolutions.values());
+                    if (!childSolutions.isEmpty()) childSolutionSets.add(childSolutions.values());
 
                     visitedChannelDescriptors.remove(targetChannelDescriptor);
                 }
@@ -614,7 +676,7 @@ public class ChannelConversionGraph {
                 for (Collection<Tree> trees : childSolutionSets) {
                     for (Tree tree : trees) {
                         if (this.allDestinationChannelIndices.isSubmaskOf(tree.settledDestinationIndices)) {
-                            bestBreakpointSolution = selectCheaperTree(bestBreakpointSolution, tree);
+                            bestBreakpointSolution = selectPreferredTree(bestBreakpointSolution, tree);
                         }
                     }
                 }
@@ -629,7 +691,7 @@ public class ChannelConversionGraph {
                 // Each childSolutionSet its has a mapping from settled indices to trees.
                 for (Tree tree : childSolutionSet) {
                     // Update newSolutions if the current tree is cheaper or settling new indices.
-                    newSolutions.merge(tree.settledDestinationIndices, tree, ChannelConversionGraph.this::selectCheaperTree);
+                    newSolutions.merge(tree.settledDestinationIndices, tree, ChannelConversionGraph.this::selectPreferredTree);
                 }
             }
 
@@ -648,14 +710,17 @@ public class ChannelConversionGraph {
                     }
                 }
 
-                if (numUnreachedDestinationSets >= 2) {
+                if (numUnreachedDestinationSets >= 2) { // only combine when there is more than one destination left
                     final Collection<List<Collection<Tree>>> childSolutionSetCombinations =
                             RheemCollections.createPowerList(childSolutionSets, numUnreachedDestinationSets);
-                    childSolutionSetCombinations.removeIf(e -> e.size() < 2);
-                    for (List<Tree> solutionCombination : RheemCollections.streamedCrossProduct(childSolutionSets)) {
-                        final Tree tree = ChannelConversionGraph.this.mergeTrees(solutionCombination);
-                        if (tree != null) {
-                            newSolutions.merge(tree.settledDestinationIndices, tree, ChannelConversionGraph.this::selectCheaperTree);
+                    for (List<Collection<Tree>> childSolutionSetCombination : childSolutionSetCombinations) {
+                        if (childSolutionSetCombination.size() < 2)
+                            continue; // only combine when we have more than on child solution
+                        for (List<Tree> solutionCombination : RheemCollections.streamedCrossProduct(childSolutionSetCombination)) {
+                            final Tree tree = ChannelConversionGraph.this.mergeTrees(solutionCombination);
+                            if (tree != null) {
+                                newSolutions.merge(tree.settledDestinationIndices, tree, ChannelConversionGraph.this::selectPreferredTree);
+                            }
                         }
                     }
                 }
@@ -705,6 +770,19 @@ public class ChannelConversionGraph {
             );
         }
 
+        /**
+         * Determine whether the given {@link ChannelConversion} should be filtered.
+         *
+         * @param channelConversion which should be checked for filtering
+         * @return whether to filter the {@link ChannelConversion}
+         */
+        private boolean isFiltered(ChannelConversion channelConversion) {
+            return this.conversionFilterCache.computeIfAbsent(
+                    channelConversion,
+                    key -> key.isFiltered(this.cardinality, this.numExecutions, this.optimizationContextCopy)
+            );
+        }
+
         private void createJunction(Tree tree) {
             List<OptimizationContext> localOptimizationContexts = this.forkLocalOptimizationContext();
 
@@ -745,6 +823,15 @@ public class ChannelConversionGraph {
                     }
                 }
             }
+
+            assert tree.settledDestinationIndices.stream().allMatch(i -> junction.getTargetChannel(i) != null) :
+                    String.format("Junction from %s to %s has no target channels.",
+                            junction.getSourceOutput(),
+                            tree.settledDestinationIndices.stream()
+                                    .filter(idx -> junction.getTargetChannel(idx) == null)
+                                    .mapToObj(idx -> String.format("%s (index=%d)", this.destInputs.get(idx), idx))
+                                    .collect(Collectors.joining(" and "))
+                    );
 
             // CHECK: We don't need to worry about entering loops, because in this case #resolveSupportedChannels(...)
             // does all the magic!?

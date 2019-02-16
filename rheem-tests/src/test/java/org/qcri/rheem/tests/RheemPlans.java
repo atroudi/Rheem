@@ -17,6 +17,9 @@ import org.qcri.rheem.core.util.RheemArrays;
 import org.qcri.rheem.core.util.Tuple;
 import org.qcri.rheem.java.operators.JavaCollectionSource;
 import org.qcri.rheem.java.operators.JavaDoWhileOperator;
+import org.qcri.rheem.spark.operators.SparkBernoulliSampleOperator;
+import org.qcri.rheem.spark.operators.SparkRandomPartitionSampleOperator;
+import org.qcri.rheem.spark.operators.SparkShufflePartitionSampleOperator;
 import org.qcri.rheem.sqlite3.Sqlite3;
 import org.qcri.rheem.sqlite3.operators.Sqlite3TableSource;
 
@@ -34,11 +37,16 @@ import java.util.stream.Stream;
  */
 public class RheemPlans {
 
+    //public static final URI FILE_SOME_LINES_TXT = createUri("/long_cleaned_abstracts_en_100.tql");
     public static final URI FILE_SOME_LINES_TXT = createUri("/some-lines.txt");
 
     public static final URI FILE_OTHER_LINES_TXT = createUri("/other-lines.txt");
 
     public static final URI ULYSSES_TXT = createUri("/ulysses.txt");
+
+    public static final URI FILE_WITH_KEY_1 = createUri("/lines-with-key1.txt");
+
+    public static final URI FILE_WITH_KEY_2 = createUri("/lines-with-key2.txt");
 
     public static URI createUri(String resourcePath) {
         try {
@@ -166,7 +174,7 @@ public class RheemPlans {
         // Build a Rheem plan.
         TextFileSource textFileSource = new TextFileSource(inputFileUri.toString());
         textFileSource.setName("Load input file");
-        SortOperator<String> sortOperator = new SortOperator<>(String.class);
+        SortOperator<String, String> sortOperator = new SortOperator<>(in->in, String.class, String.class);
         sortOperator.setName("Sort lines");
         MapOperator<String, String> upperCaseOperator = new MapOperator<>(
                 String::toUpperCase, String.class, String.class
@@ -202,7 +210,7 @@ public class RheemPlans {
                 String::toUpperCase, String.class, String.class
         );
         UnionAllOperator<String> unionOperator = new UnionAllOperator<>(String.class);
-        SortOperator<String> sortOperator = new SortOperator<>(String.class);
+        SortOperator<String, String> sortOperator = new SortOperator<>(r->r, String.class, String.class);
         DistinctOperator<String> distinctLinesOperator = new DistinctOperator<>(String.class);
         LocalCallbackSink<String> stdoutSink = LocalCallbackSink.createStdoutSink(String.class);
 
@@ -315,13 +323,13 @@ public class RheemPlans {
      * Creates a {@link RheemPlan} with a {@link CollectionSource} that is fed into a {@link SampleOperator}. It will
      * then map each value to its double and output the results in the {@code collector}.
      */
-    public static RheemPlan simpleSample(Collection<Integer> collector, final int... values)
+    public static RheemPlan simpleSample(int sampleSize, Collection<Integer> collector, final int... values)
             throws URISyntaxException {
         CollectionSource<Integer> source = new CollectionSource<>(RheemArrays.asList(values), Integer.class);
         source.setName("source");
 
         SampleOperator<Integer> sampleOperator = new SampleOperator<>(
-                3, DataSetType.createDefault(Integer.class), SampleOperator.Methods.RANDOM, SampleOperator.randomSeed()
+                sampleSize, DataSetType.createDefault(Integer.class), SampleOperator.Methods.RANDOM, SampleOperator.randomSeed()
         );
         sampleOperator.setName("sample");
 
@@ -336,6 +344,48 @@ public class RheemPlans {
         mapOperator.connectTo(0, sink, 0);
 
         // Create the RheemPlan.
+        return new RheemPlan(sink);
+    }
+
+    public static RheemPlan sampleInLoop(int sampleSize, int iterations, Collection<Integer> collector, final int... inputValues) {
+
+        // Prepare test data.
+        CollectionSource<Integer> source = new CollectionSource<>(RheemArrays.asList(inputValues), Integer.class);
+        source.setName("source");
+
+        CollectionSource<Integer> convergenceSource = new CollectionSource<>(RheemArrays.asList(0), Integer.class);
+        convergenceSource.setName("convergenceSource");
+
+
+        LoopOperator<Integer, Integer> loopOperator = new LoopOperator<>(DataSetType.createDefault(Integer.class),
+                DataSetType.createDefault(Integer.class),
+                (PredicateDescriptor.SerializablePredicate<Collection<Integer>>) collection ->
+                        collection.iterator().next() >= iterations, iterations
+        );
+        loopOperator.setName("loop");
+        loopOperator.initialize(source, convergenceSource);
+
+        // Build the sample executionOperator.
+        SparkShufflePartitionSampleOperator<Integer> sampleOperator =
+                new SparkShufflePartitionSampleOperator<>(
+                        iterationNumber -> sampleSize,
+                        DataSetType.createDefaultUnchecked(Integer.class),
+                        iterationNumber -> 42 + iterationNumber
+                );
+        sampleOperator.setDatasetSize(10);
+        sampleOperator.setName("sample");
+
+        MapOperator<Integer, Integer> counter = new MapOperator<>(
+                new TransformationDescriptor<>(n -> n + 1, Integer.class, Integer.class)
+        );
+        counter.setName("counter");
+        loopOperator.beginIteration(sampleOperator, counter);
+        loopOperator.endIteration(sampleOperator, counter);
+
+        LocalCallbackSink<Integer> sink = LocalCallbackSink.createCollectingSink(collector, Integer.class);
+        sink.setName("sink");
+        loopOperator.outputConnectTo(sink);
+
         return new RheemPlan(sink);
     }
 
@@ -378,6 +428,19 @@ public class RheemPlans {
         RepeatOperator<Integer> repeat = new RepeatOperator<>(numIterations, Integer.class);
         repeat.setName("repeat");
 
+
+        // Begin of New added part below
+        MapOperator<Integer, Integer> preprocessing = new MapOperator<>(
+                i -> i, Integer.class, Integer.class
+        );
+        source.connectTo(0,preprocessing,0);
+        // End of New added part below
+
+        MapOperator<Integer, Integer> FIRSTincrement = new MapOperator<>(
+                i -> i + 1, Integer.class, Integer.class
+        );
+        FIRSTincrement.setName("FIRSTincrement");
+
         MapOperator<Integer, Integer> increment = new MapOperator<>(
                 i -> i + 1, Integer.class, Integer.class
         );
@@ -389,7 +452,8 @@ public class RheemPlans {
         );
         sink.setName("sink");
 
-        repeat.initialize(source, 0);
+        source.connectTo(0,FIRSTincrement,0);
+        repeat.initialize(FIRSTincrement, 0);
         repeat.beginIteration(increment, 0);
         repeat.endIteration(increment, 0);
         repeat.connectFinalOutputTo(sink, 0);
@@ -695,9 +759,9 @@ public class RheemPlans {
         noCommaOperator.setName("Filter comma");
         UnionAllOperator<String> unionOperator = new UnionAllOperator<>(String.class);
         unionOperator.setName("Union");
-        LocalCallbackSink<String> stdoutSink = LocalCallbackSink.createStdoutSink(String.class);
+        LocalCallbackSink<String> stdoutSink = LocalCallbackSink.createCollectingSink(new ArrayList<>(),String.class);
         stdoutSink.setName("Print");
-        SortOperator<String> sortOperator = new SortOperator<>(String.class);
+        SortOperator<String, String> sortOperator = new SortOperator<>(r->r, String.class, String.class);
         sortOperator.setName("Sort");
         CountOperator<String> countLines = new CountOperator<>(String.class);
         countLines.setName("Count");

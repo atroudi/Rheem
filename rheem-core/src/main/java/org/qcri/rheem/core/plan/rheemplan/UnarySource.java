@@ -7,6 +7,8 @@ import org.qcri.rheem.core.types.DataSetType;
  */
 public abstract class UnarySource<T> extends OperatorBase implements ElementaryOperator {
 
+    protected String inputUrl;
+
     /**
      * Creates a new instance that does not support broadcast {@link InputSlot}s.
      */
@@ -41,5 +43,13 @@ public abstract class UnarySource<T> extends OperatorBase implements ElementaryO
     public DataSetType<T> getType() {
         return this.getOutput().getType();
     }
+
+    public void setInputUrl(String inputUrl) {
+        this.inputUrl = inputUrl;
+    }
+    public String getInputUrl() {
+        return this.inputUrl;
+    }
+
 
 }

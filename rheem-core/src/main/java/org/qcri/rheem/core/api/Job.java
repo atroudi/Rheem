@@ -5,6 +5,9 @@ import de.hpi.isg.profiledb.store.model.Experiment;
 import de.hpi.isg.profiledb.store.model.TimeMeasurement;
 import org.qcri.rheem.core.api.exception.RheemException;
 import org.qcri.rheem.core.mapping.PlanTransformation;
+import org.qcri.rheem.core.monitor.DisabledMonitor;
+import org.qcri.rheem.core.monitor.FileMonitor;
+import org.qcri.rheem.core.monitor.Monitor;
 import org.qcri.rheem.core.optimizer.DefaultOptimizationContext;
 import org.qcri.rheem.core.optimizer.OptimizationContext;
 import org.qcri.rheem.core.optimizer.ProbabilisticDoubleInterval;
@@ -13,6 +16,10 @@ import org.qcri.rheem.core.optimizer.cardinality.CardinalityEstimatorManager;
 import org.qcri.rheem.core.optimizer.costs.TimeEstimate;
 import org.qcri.rheem.core.optimizer.costs.TimeToCostConverter;
 import org.qcri.rheem.core.optimizer.enumeration.*;
+import org.qcri.rheem.core.optimizer.mloptimizer.LoadModel;
+import org.qcri.rheem.core.optimizer.mloptimizer.LogGenerator;
+import org.qcri.rheem.core.optimizer.mloptimizer.MLestimation;
+import org.qcri.rheem.core.optimizer.mloptimizer.api.Tuple2;
 import org.qcri.rheem.core.plan.executionplan.Channel;
 import org.qcri.rheem.core.plan.executionplan.ExecutionPlan;
 import org.qcri.rheem.core.plan.executionplan.ExecutionStage;
@@ -27,6 +34,7 @@ import org.qcri.rheem.core.util.RheemCollections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -57,6 +65,16 @@ public class Job extends OneTimeExecutable {
      * The {@link RheemPlan} to be executed by this instance.
      */
     private final RheemPlan rheemPlan;
+
+    /**
+     * The {@link RheemPlan} to be executed by this instance.
+     */
+    private final RheemPlan profilingRheemPlan;
+
+    /**
+     * Best feature plan representation
+     */
+    private static Tuple2<double[],Double> bestFeatureVector;
 
     /**
      * {@link OptimizationContext} for the {@link #rheemPlan}.
@@ -108,10 +126,17 @@ public class Job extends OneTimeExecutable {
      */
     private final Set<String> udfJarPaths = new HashSet<>();
 
+    private Monitor monitor;
+
     /**
      * Name for this instance.
      */
     private final String name;
+
+    /**
+     * Log generator containing Rheem plan feature vector used for ML optimizer
+     */
+    LogGenerator logGenerator = new LogGenerator();
 
     /**
      * <i>Currently not used.</i>
@@ -119,7 +144,7 @@ public class Job extends OneTimeExecutable {
     private final StageAssignmentTraversal.StageSplittingCriterion stageSplittingCriterion =
             (producerTask, channel, consumerTask) -> false;
 
-    /**
+       /**
      * The {@link PlanImplementation} that is being executed.
      */
     private PlanImplementation planImplementation;
@@ -138,11 +163,13 @@ public class Job extends OneTimeExecutable {
      * @param experiment an {@link Experiment} for that profiling entries will be created
      * @param udfJars    paths to JAR files needed to run the UDFs (see {@link ReflectionUtils#getDeclaringJar(Class)})
      */
-    Job(RheemContext rheemContext, String name, RheemPlan rheemPlan, Experiment experiment, String... udfJars) {
+    Job(RheemContext rheemContext, String name, Monitor monitor, RheemPlan rheemPlan, Experiment experiment, String... udfJars) {
         this.rheemContext = rheemContext;
         this.name = name == null ? "Rheem app" : name;
         this.configuration = this.rheemContext.getConfiguration().fork(this.name);
         this.rheemPlan = rheemPlan;
+        this.profilingRheemPlan = rheemPlan;
+
         for (String udfJar : udfJars) {
             this.addUdfJar(udfJar);
         }
@@ -162,6 +189,14 @@ public class Job extends OneTimeExecutable {
         this.stopWatch = new StopWatch(experiment);
         this.optimizationRound = this.stopWatch.getOrCreateRound("Optimization");
         this.executionRound = this.stopWatch.getOrCreateRound("Execution");
+
+        // Configure job monitor.
+        if (Monitor.isEnabled(this.configuration)) {
+            this.monitor = monitor==null ? new FileMonitor() : monitor;
+        }
+        else {
+            this.monitor = new DisabledMonitor();
+        }
     }
 
     /**
@@ -189,6 +224,26 @@ public class Job extends OneTimeExecutable {
         }
     }
 
+    public ExecutionPlan buildInitialExecutionPlan() throws RheemException {
+        this.prepareRheemPlan();
+        this.estimateKeyFigures();
+
+        // Get initial execution plan.
+        ExecutionPlan executionPlan = this.createInitialExecutionPlan();
+        return  executionPlan;
+    }
+
+    // TODO: Move outside of Job class
+    public void reportProgress(String opName, Integer progress) {
+        HashMap<String, Integer> partialProgress = new HashMap<>();
+        partialProgress.put(opName, progress);
+        try {
+            this.monitor.updateProgress(partialProgress);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     @Override
     protected void doExecute() {
         // Make sure that each job is only executed once.
@@ -198,6 +253,12 @@ public class Job extends OneTimeExecutable {
 
         try {
 
+            // if ml learning model is used the the vector log preparation happen before inflation and hyperplan generation
+            if(configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer")){
+                logger.info("rheem plan to feature vector convesion.");
+                // prepare vector log
+                logGenerator.prepareVectorLog(rheemPlan,rheemContext.getConfiguration(),true);
+            }
             // Prepare the #rheemPlan for the optimization.
             this.optimizationRound.start();
             this.prepareRheemPlan();
@@ -206,18 +267,51 @@ public class Job extends OneTimeExecutable {
             this.estimateKeyFigures();
 
             // Get an execution plan.
-            ExecutionPlan executionPlan = this.createInitialExecutionPlan();
+            int executionId = 0;
+            ExecutionPlan executionPlan;
+            //if(configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer"))
+            //    executionPlan = this.createInitialExecutionPlanMLearner();
+            //else
+            executionPlan = this.createInitialExecutionPlan();
             this.optimizationRound.stop();
+            if (this.experiment != null) {
+                this.experiment.addMeasurement(ExecutionPlanMeasurement.capture(
+                        executionPlan,
+                        String.format("execution-plan-%d", executionId)
+                ));
+            }
+
+            // TODO: generate run ID. For now we fix this because we can't handle multiple jobs, neither in montoring nor execution.
+            String runId = "1";
+            try {
+                monitor.initialize(this.configuration, runId, executionPlan.toJsonList());
+            } catch (Exception e) {
+                this.logger.warn("Failed to initialize monitor: {}", e);
+            }
+
 
             // Take care of the execution.
-            int executionId = 0;
             while (!this.execute(executionPlan, executionId)) {
                 this.optimizationRound.start();
-                if (this.postProcess(executionPlan, executionId)) executionId++;
+                if (this.postProcess(executionPlan, executionId)) {
+                    executionId++;
+                    if (this.experiment != null) {
+                        this.experiment.addMeasurement(ExecutionPlanMeasurement.capture(
+                                executionPlan,
+                                String.format("execution-plan-%d", executionId)
+                        ));
+                    }
+                }
                 this.optimizationRound.stop();
             }
 
             this.stopWatch.start("Post-processing");
+
+            // Update best feature plan vector with corrected cardinalities
+
+            //if !bestFeatureVector.equals(null)
+
+//            }
             if (this.configuration.getBooleanProperty("rheem.core.log.enabled")) {
                 this.logExecution();
             }
@@ -295,8 +389,39 @@ public class Job extends OneTimeExecutable {
         this.optimizationRound.stop("Cardinality&Load Estimation", "Push Estimation");
 
         this.optimizationRound.stop("Cardinality&Load Estimation");
+        //logGenerator.updateExecutionOperators(optimizationContext.getLocalOperatorContexts());
+
     }
 
+
+    private PlanEnumerator pickBestExecutionPlanMLearner() {
+
+        logger.info("update  exhaustive feature vectors enumeration");
+        logGenerator.updateExecutionOperators(optimizationContext.getLocalOperatorContexts(), false);
+        logger.info("start exhaustive feature vectors enumeration");
+        logGenerator.exhaustivePlanPlatformFiller(this.configuration.getLongProperty("rheem.core.optimizer.mloptimizer.exhaustiveVectorMaxBuffer",1000));
+
+        // Load Model
+        logger.info("Loading model for Ml optimizer!");
+        LoadModel.loadModel(logGenerator.getExhaustiveVectors());
+
+        // Predict execution time and pick minimum
+        logger.info("Pick best Ml optimizer estimates!");
+        Tuple2<double[],Double> bestFeatureVector =  MLestimation.getBestVector(logGenerator.getExhaustiveVectors());
+
+        // convert feature vector to execution Plan
+        //final PlanImplementation MLplanImplementation = Vector2ExecutionPlan.generate(executionPlans, bestFeatureVector.getField0());
+
+        //
+        //if(is instanceof OperatorAlternative)
+        keepMLearnedAlternatives(bestFeatureVector.getField0());
+
+        logger.info(String.format("Best plan feature estimation time: %f",bestFeatureVector.getField1()));
+        logGenerator.printLog(bestFeatureVector.getField0());
+        return this.createPlanEnumerator();
+
+        //return this.planImplementation = MLplanImplementation;
+    }
 
     /**
      * Determine a good/the best execution plan from a given {@link RheemPlan}.
@@ -305,6 +430,14 @@ public class Job extends OneTimeExecutable {
         this.logger.info("Enumerating execution plans...");
 
         this.optimizationRound.start("Create Initial Execution Plan");
+
+//        if(configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer")&&
+//                (configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer.exhaustivePruning")))
+//            // pick best execution plan using ml optimizer
+//            this.pickBestExecutionPlanMLearner();
+
+        // update pruning logGenerator
+        this.optimizationContext.getPruningStrategies().forEach(strategy -> strategy.setLog(logGenerator));
 
         // Enumerate all possible plan.
         final PlanEnumerator planEnumerator = this.createPlanEnumerator();
@@ -324,6 +457,9 @@ public class Job extends OneTimeExecutable {
         // Pick an execution plan.
         // Make sure that an execution plan can be created.
         this.optimizationRound.start("Create Initial Execution Plan", "Pick Best Plan");
+
+        //if(!configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer"))
+            // pick best execution plan using cost based optimizer
         this.pickBestExecutionPlan(executionPlans, null, null, null);
         this.timeEstimates.add(planImplementation.getTimeEstimate());
         this.costEstimates.add(planImplementation.getCostEstimate());
@@ -341,9 +477,92 @@ public class Job extends OneTimeExecutable {
 
         //assert executionPlan.isSane();
 
-
         this.optimizationRound.stop("Create Initial Execution Plan");
         return executionPlan;
+    }
+
+    /**
+     * Keep  learned  {@link OperatorAlternative.Alternative} to be used to build the plan implementation
+     * @param featureVector
+     */
+    private void keepMLearnedAlternatives(double[] featureVector) {
+        double[] currentFeatureVector = featureVector.clone();
+        rheemPlan.collectReachableTopLevelSources();
+        List<OperatorAlternative> previousAlternativeOperators = new ArrayList<>();
+        rheemPlan.getSinks().stream().forEach(op-> previousAlternativeOperators.add((OperatorAlternative) op));
+
+        ListIterator iterable = previousAlternativeOperators.listIterator();
+
+        final OperatorAlternative[] previousAlternativeOperator = new OperatorAlternative[1];
+        iterable.next();
+
+        Stack<LoopHeadAlternative> loopHeadAlternativeQueue = new Stack<>();
+
+        while(iterable.hasPrevious()) {
+            previousAlternativeOperator[0] = (OperatorAlternative) iterable.previous();
+
+//            // Handle the case of loop head alternative
+            if(previousAlternativeOperator[0] instanceof LoopHeadAlternative) {
+                LoopHeadAlternative loopHeadAlternative = (LoopHeadAlternative) previousAlternativeOperator[0];
+                // check if the list has already the current head
+                if((loopHeadAlternativeQueue.isEmpty())||(!loopHeadAlternativeQueue.peek().equals(loopHeadAlternative))){
+
+                    loopHeadAlternative.getLoopBodyInputs().stream().forEach(input3->iterable.add(input3.getOccupant().getOwner()));
+                    // add the head to the queue
+                    loopHeadAlternativeQueue.push(loopHeadAlternative);
+                }
+                else{
+                    // add the InitInput of loopSubplan
+                    Operator operator2 = loopHeadAlternative.getInnermostLoop();
+
+                    iterable.add(loopHeadAlternative.getInnermostLoop().getInput(0).getOccupant().getOwner());
+
+                    // pop the head from the queue
+                    loopHeadAlternativeQueue.pop();
+                    // update the previous operator
+                    previousAlternativeOperator[0] = (OperatorAlternative) iterable.previous();
+
+                    if(previousAlternativeOperator[0] instanceof LoopHeadAlternative) {
+                        LoopHeadAlternative tmploopHeadAlternative2 = (LoopHeadAlternative) previousAlternativeOperator[0];
+                        // check if the list has already the current head
+                        if((loopHeadAlternativeQueue.isEmpty())||(!loopHeadAlternativeQueue.peek().equals(loopHeadAlternative))){
+
+                            tmploopHeadAlternative2.getLoopBodyInputs().stream().forEach(input3->iterable.add(input3.getOccupant().getOwner()));
+                            // add the head to the queue
+                            loopHeadAlternativeQueue.push(tmploopHeadAlternative2);
+                        }
+                    } else
+                        // Add previous operator
+                        Arrays.stream(previousAlternativeOperator[0].getAllInputs()).forEach(input->{
+                            if(input.getOccupant().getOwner() instanceof LoopSubplan){
+                                LoopHeadAlternative tmpLoopHeadAlternative = (LoopHeadAlternative) ((LoopSubplan) input.getOccupant().getOwner()).getLoopHead();
+                                iterable.add(tmpLoopHeadAlternative);
+                            }
+                            else
+                                iterable.add((OperatorAlternative) input.getOccupant().getOwner());
+                            });
+                        }
+                }
+            else
+                // Add previous operator
+                Arrays.stream(previousAlternativeOperator[0].getAllInputs()).forEach(input->{
+                    if(input.getOccupant()!=null)
+                        if(input.getOccupant().getOwner() instanceof LoopSubplan){
+                            LoopHeadAlternative loopHeadAlternative = (LoopHeadAlternative) ((LoopSubplan) input.getOccupant().getOwner()).getLoopHead();
+                            iterable.add(loopHeadAlternative);
+                        }
+                        else
+                            iterable.add((OperatorAlternative) input.getOccupant().getOwner());
+                        });
+
+            // get contained operator name
+            Operator operator = previousAlternativeOperator[0].getAlternatives().get(0).getContainedOperator();
+            String operatorName = operator.toString();
+            Tuple2<double[],Integer> retreiveOperatorPlatform = logGenerator.retreiveOperatorPlatform(currentFeatureVector,operatorName);
+            currentFeatureVector = retreiveOperatorPlatform.getField0();
+            List<String> platforms = new ArrayList<>(LogGenerator.PLATFORMVECTORPOSITION.keySet());
+            previousAlternativeOperator[0].keepAlternative(platforms.get(retreiveOperatorPlatform.getField1()));
+        }
     }
 
 
@@ -352,13 +571,45 @@ public class Job extends OneTimeExecutable {
                                                      Set<Channel> openChannels,
                                                      Set<ExecutionStage> executedStages) {
 
-        final PlanImplementation bestPlanImplementation = executionPlans.stream()
-                .reduce((p1, p2) -> {
-                    final double t1 = p1.getSquashedCostEstimate();
-                    final double t2 = p2.getSquashedCostEstimate();
-                    return t1 < t2 ? p1 : p2;
-                })
-                .orElseThrow(() -> new RheemException("Could not find an execution plan."));
+        // trivial
+        if(executionPlans.size()==1)
+            return this.planImplementation = executionPlans.stream().reduce((p1,p2)->p1).get();
+        PlanImplementation bestPlanImplementation;
+        if(configuration.getBooleanProperty("rheem.core.optimizer.mloptimizer")){
+            logGenerator.reinitializepruningLogs();
+
+            //logGenerator =new LogGenerator();
+            // add operators
+            //logGenerator.
+
+            List<Tuple2<PlanImplementation,double[]>> tupleIplementationFeatureVector = new ArrayList<>();
+            executionPlans.stream()
+                    .forEach(planImplementation-> {
+                        tupleIplementationFeatureVector.add(new Tuple2<>(planImplementation,logGenerator.addPruningFeatureLog(planImplementation)));
+                    });
+
+            // Load Model
+            LoadModel.loadModel(logGenerator.getPruningFeatureLogs());
+
+            // Predict execution time and pick minimum
+            logger.info("Pick best Ml optimizer estimates!");
+            bestFeatureVector =  MLestimation.getBestVector(logGenerator.getPruningFeatureLogs());
+
+            logger.info(String.format("Best plan feature estimation time: %f",bestFeatureVector.getField1()));
+            this.logger.info("Best plan feature plan: " + logGenerator.printLog(bestFeatureVector.getField0()));
+
+
+            bestPlanImplementation = tupleIplementationFeatureVector.stream().filter(t1->t1.field1==bestFeatureVector.getField0()).findAny().orElse(null).field0;
+        }
+        else{
+            bestPlanImplementation = executionPlans.stream()
+                    .reduce((p1, p2) -> {
+                        final double t1 = p1.getSquashedCostEstimate();
+                        final double t2 = p2.getSquashedCostEstimate();
+                        return t1 < t2 ? p1 : p2;
+                    })
+                    .orElseThrow(() -> new RheemException("Could not find an execution plan."));
+        }
         this.logger.info("Picked {} as best plan.", bestPlanImplementation);
         return this.planImplementation = bestPlanImplementation;
     }
@@ -727,6 +978,15 @@ public class Job extends OneTimeExecutable {
         return this.crossPlatformExecutor;
     }
 
+    /**
+     * Set the {@link CrossPlatformExecutor} to be used during the execution of this instance.
+     *
+     * @return the {@link CrossPlatformExecutor} or {@code null} if there is none allocated
+     */
+    public void setCrossPlatformExecutor(CrossPlatformExecutor crossPlatformExecutor) {
+        this.crossPlatformExecutor = crossPlatformExecutor;
+    }
+
     public DefaultOptimizationContext getOptimizationContext() {
         return this.optimizationContext;
     }
@@ -780,4 +1040,10 @@ public class Job extends OneTimeExecutable {
     public Map<String, Object> getCache() {
         return this.cache;
     }
+
+    /**
+     * Provide the executed plan
+     * @return
+     */
+    public PlanImplementation getPlanImplementation() { return planImplementation; }
 }

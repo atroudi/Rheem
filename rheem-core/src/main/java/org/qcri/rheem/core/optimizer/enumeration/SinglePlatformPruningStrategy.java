@@ -1,6 +1,7 @@
 package org.qcri.rheem.core.optimizer.enumeration;
 
 import org.qcri.rheem.core.api.Configuration;
+import org.qcri.rheem.core.optimizer.mloptimizer.LogGenerator;
 import org.qcri.rheem.core.platform.Platform;
 
 /**
@@ -24,6 +25,11 @@ public class SinglePlatformPruningStrategy implements PlanEnumerationPruningStra
         planEnumeration.getPlanImplementations().removeIf(
                 planImplementation -> planImplementation.getUtilizedPlatforms().size() > 1
         );
+    }
+
+    @Override
+    public void setLog(LogGenerator logGenerator) {
+
     }
 
 }

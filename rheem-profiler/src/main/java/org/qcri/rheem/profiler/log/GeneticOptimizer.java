@@ -36,7 +36,7 @@ public class GeneticOptimizer {
     private final Collection<PartialExecution> observations;
 
     /**
-     * Counts observation instances, such as an operator or a platform initialization, in the training data.
+     * Counts observation instances, such as an executionOperator or a platform initialization, in the training data.
      */
     private final TObjectIntMap<Object> numObservations;
 

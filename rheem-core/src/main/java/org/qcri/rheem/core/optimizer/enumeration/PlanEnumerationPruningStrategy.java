@@ -1,6 +1,7 @@
 package org.qcri.rheem.core.optimizer.enumeration;
 
 import org.qcri.rheem.core.api.Configuration;
+import org.qcri.rheem.core.optimizer.mloptimizer.LogGenerator;
 
 /**
  * A strategy to prune {@link PlanImplementation}s from a {@link PlanEnumeration}.
@@ -20,4 +21,6 @@ public interface PlanEnumerationPruningStrategy {
      * @param planEnumeration to be pruned
      */
     void prune(PlanEnumeration planEnumeration);
+
+    void setLog(LogGenerator logGenerator);
 }
