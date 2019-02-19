@@ -1,6 +1,5 @@
 package org.qcri.rheem.profiler.core;
 
-import com.google.common.collect.Lists;
 import org.qcri.rheem.core.api.exception.RheemException;
 import org.qcri.rheem.core.optimizer.mloptimizer.api.Tuple2;
 import org.qcri.rheem.core.api.Configuration;
@@ -12,6 +11,7 @@ import org.qcri.rheem.core.plan.rheemplan.InputSlot;
 import org.qcri.rheem.core.plan.rheemplan.OutputSlot;
 import org.qcri.rheem.core.types.DataSetType;
 import org.qcri.rheem.profiler.core.api.*;
+import org.qcri.rheem.profiler.core.api.PlanEnumeration.ExhaustiveEnumeration;
 import org.qcri.rheem.profiler.generators.DataGenerators;
 import org.qcri.rheem.profiler.generators.ProfilingOperatorGenerator;
 import org.qcri.rheem.profiler.spark.SparkOperatorProfiler;
@@ -49,21 +49,22 @@ public class ProfilingPlanBuilder implements Serializable {
     private static LoopTopology currentLoop;
 
 
-    public static List<List<PlanProfiler>> exhaustiveProfilingPlanBuilder(List<Shape> shapes, ProfilingConfig profilingConfiguration){
+    public static List<List<PlanProfiler>> ProfilingPlanBuilder(List<Shape> shapes, ProfilingConfig profilingConfiguration){
         profilingConfig = profilingConfiguration;
         assert (shapes.size()!=0);
 
         List<List<PlanProfiler>> topologyPlanProfilers = new ArrayList<>();
 
         for(Shape s:shapes){
-            if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("exhaustive")){
-                topologyPlanProfilers.add(exhaustiveProfilingPlanBuilder(s, shapes, configuration));
-            } else if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("random")){
+            if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("random")){
                 topologyPlanProfilers.add(randomProfilingPlanBuilder(s, shapes, configuration));
+            } else if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("exhaustive")){
+                topologyPlanProfilers.add(exhaustiveProfilingPlanBuilder(s, configuration, "exhaustive"));
+            } else if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("maxPlatSwitch")){
+            topologyPlanProfilers.add(exhaustiveProfilingPlanBuilder(s, configuration, "maxPlatSwitch"));
             } else {
-                // TODO: add more profiling plan generation enumeration: worstPlanGen (more execution time),betterPlanGen (less execution time)
+                // TODO: add more profiling plan generation pruning: worstPlanGen (more execution time),betterPlanGen (less execution time)
                 new RheemException("Unhandled profiling plan generation!");
-
             }
         }
         return topologyPlanProfilers;
@@ -75,7 +76,7 @@ public class ProfilingPlanBuilder implements Serializable {
      * @param shape
      * @return
      */
-    public static List<PlanProfiler> exhaustiveProfilingPlanBuilder(Shape shape, List<Shape> shapes, Configuration configuration){
+    public static List<PlanProfiler> exhaustiveProfilingPlanBuilder(Shape shape, Configuration configuration, String pruning){
         List<PlanProfiler> planProfilers = new ArrayList<>();
         PlanProfiler planProfiler = new PlanProfiler(shape, profilingConfig);
         List<Shape> tmpSubShapes = new ArrayList<>();
@@ -104,7 +105,6 @@ public class ProfilingPlanBuilder implements Serializable {
                     })
                     .reduce((n1, n2) -> n1 + n2);
 
-            int NODE_NUMBER = 3;
             List nodes = new ArrayList<String>(total_pipeline_nodes.get());
             List<List<Tuple2<String,String>>> totalEnumOpertorsPlatforms = new ArrayList<>();
 
@@ -113,8 +113,14 @@ public class ProfilingPlanBuilder implements Serializable {
                 nodes.add(new Tuple2<>(profilingConfig.getUnaryExecutionOperators().get(0),profilingConfig.getProfilingPlateform()));
 
             // Get exhaustive operator-plateform generation
-            ExhaustiveEnumeration.doubleRecursiveEnumeration(nodes, profilingConfig.getUnaryExecutionOperators() , profilingConfig.getProfilingPlateform(), 0);
-            totalEnumOpertorsPlatforms  = ExhaustiveEnumeration.getTotalEnumOpertorsPlatforms();
+            switch (pruning){
+                case "exhaustive":
+                    ExhaustiveEnumeration.doubleRecursiveEnumeration(nodes, profilingConfig.getUnaryExecutionOperators() , profilingConfig.getProfilingPlateform(), 0, total_pipeline_nodes.get() , totalEnumOpertorsPlatforms);
+                    break;
+                case "maxPlatSwitch":
+                    MaxPlatformPruningEnumeration.doubleRecursiveEnumerationWithSwitchPruning(nodes, profilingConfig.getUnaryExecutionOperators() , profilingConfig.getProfilingPlateform(), 0, profilingConfig.getMaxPlatformSwitch(), total_pipeline_nodes.get() , totalEnumOpertorsPlatforms);
+                    break;
+            }
 
             // all pipelines node filling counter
             int enumCounter=0;
@@ -193,7 +199,7 @@ public class ProfilingPlanBuilder implements Serializable {
             }
 
         }
-        shape.setSubShapes(tmpSubShapes);
+        shape.setExecutionShapes(tmpSubShapes);
         return planProfilers;
     }
 
@@ -271,7 +277,7 @@ public class ProfilingPlanBuilder implements Serializable {
                                 t.addPlatform(platform);
                             }
 
-                            // Fill the loop topologies
+                            // Fill loop topologies
                             for (Topology t : shape.getLoopTopologies()) {
                                 // select a new platform randomly
                                 PlatformRnd = (int)(Math.random() * profilingConfig.getProfilingPlateform().size());
@@ -310,7 +316,7 @@ public class ProfilingPlanBuilder implements Serializable {
                 }
             //}
         }
-        shape.setSubShapes(tmpSubShapes);
+        shape.setExecutionShapes(tmpSubShapes);
         return planProfilers;
     }
 
@@ -319,7 +325,7 @@ public class ProfilingPlanBuilder implements Serializable {
      * @param shape
      * @return
      */
-    public static List<PlanProfiler> exhaustiveProfilingPlanBuilder(Shape shape){
+    public static List<PlanProfiler> ProfilingPlanBuilder(Shape shape){
         List<PlanProfiler> planProfilers = new ArrayList<>();
         PlanProfiler planProfiler = new PlanProfiler(shape, profilingConfig);
 
@@ -769,7 +775,7 @@ public class ProfilingPlanBuilder implements Serializable {
      * @param profilingConfiguration
      * @return
      */
-    public static List<PlanProfiler> exhaustiveProfilingPlanBuilder(Shape shape,ProfilingConfig profilingConfiguration){
+    public static List<PlanProfiler> ProfilingPlanBuilder(Shape shape, ProfilingConfig profilingConfiguration){
         profilingConfig = profilingConfiguration;
         if (profilingConfig.getProfilingPlanGenerationEnumeration().equals("exhaustive")){
             return exhaustivePipelineProfilingPlanBuilder(shape);
@@ -842,9 +848,6 @@ public class ProfilingPlanBuilder implements Serializable {
                 "distinct-integer", "sort", "sort-string", "sort-integer", "count", "groupby", "join", "union", "cartesian", "callbacksink", "collect",
                 "word-count-split", "word-count-canonicalize", "word-count-count"));
         List<SparkOperatorProfiler> profilingOperators = new ArrayList<>();
-        //List allCardinalities = this.profilingConfig.getInputCardinality();
-        //List dataQuata = this.profilingConfig.getDataQuantaSize();
-        //List UdfComplexity = this.profilingConfig.getUdfsComplexity();
 
         for (String operator : operators) {
             switch (operator) {

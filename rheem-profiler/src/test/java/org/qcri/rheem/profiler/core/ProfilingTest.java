@@ -36,7 +36,7 @@ public class ProfilingTest {
                 topologies = TopologyGenerator.generateTopology(3);
                 InstantiateTopology.instantiateTopology(topologies, 3);
                 profilingConfig = ProfilingConfigurer.exhaustiveProfilingConfig();
-                //planProfilers = ProfilingPlanBuilder.exhaustiveProfilingPlanBuilder(topologies,profilingConfig);
+                //planProfilers = ProfilingPlanBuilder.ProfilingPlanBuilder(topologies,profilingConfig);
                 //ProfilingRunner.exhaustiveProfiling(planProfilers,profilingConfig);
                 //System.out.println(result.toCsvString())
         }

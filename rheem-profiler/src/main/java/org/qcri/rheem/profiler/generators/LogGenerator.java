@@ -73,7 +73,7 @@ public class LogGenerator {
 //
 //                    // populate shapes
 //                    //profilingConfig = ProfilingConfigurer.exhaustiveProfilingConfig();
-//                    planProfilers = ProfilingPlanBuilder.exhaustiveProfilingPlanBuilder(shapes,profilingConfig);
+//                    planProfilers = ProfilingPlanBuilder.ProfilingPlanBuilder(shapes,profilingConfig);
 //                    //shapes.stream().forEach(s -> s.prepareVectorLogs());
 //
 //                    ProfilingRunner.exhaustiveProfiling(shapes,profilingConfig);

@@ -25,7 +25,6 @@ import org.qcri.rheem.java.Java;
 import org.qcri.rheem.profiler.core.api.*;
 import org.qcri.rheem.profiler.generators.DataGenerators;
 import org.qcri.rheem.profiler.generators.UdfGenerators;
-import org.qcri.rheem.profiler.java.JavaSourceProfiler;
 import org.qcri.rheem.profiler.util.ProfilingUtils;
 import org.qcri.rheem.profiler.util.RrdAccessor;
 import org.qcri.rheem.spark.Spark;
@@ -102,9 +101,9 @@ public class ProfilingRunner{
         runningPlanPerShape = profilingConfiguration.getNumberRunningPlansPerShape();
 
         logger.info(String.format("[PROFILING] profiling contains %d shapes with total %d subshapes \n",shapes.size(),
-                shapes.stream().map(s->s.getSubShapes().size()).reduce((s1,s2)->s1+s2).get()));
+                shapes.stream().map(s->s.getExecutionShapes().size()).reduce((s1, s2)->s1+s2).get()));
         shapes.stream().forEach(s -> {
-            s.getSubShapes().stream().forEach(executionShape->{
+            s.getExecutionShapes().stream().forEach(executionShape->{
                         if ((runningPlanPerShape==-1)||(runningCounter<runningPlanPerShape))
                             try {
                                 executeShapeProfiling(executionShape);

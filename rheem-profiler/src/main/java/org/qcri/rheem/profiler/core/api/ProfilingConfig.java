@@ -32,6 +32,7 @@ public class ProfilingConfig {
     private List<DataSetType> dataTypes;
     private String sinkPlatform;
     private boolean bushyGeneration;
+    private int maxPlatformSwitch;
 
     public boolean isBushyGeneration() {
         return bushyGeneration;
@@ -194,4 +195,9 @@ public class ProfilingConfig {
     public void setSinkPlatform(String sinkPlatform) {this.sinkPlatform = sinkPlatform;}
 
     public String getSinkPlatform(){return sinkPlatform;};
+
+    public void setMaxPlatformSwitch(int maxPlatformSwitch) { this.maxPlatformSwitch = maxPlatformSwitch; }
+
+    public int getMaxPlatformSwitch() { return this.maxPlatformSwitch;
+    }
 }
